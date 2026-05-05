@@ -1,0 +1,116 @@
+#!/usr/bin/env expect -f
+# Driven by dump-cisco-config.sh. Reads IOS_USER, IOS_PASS, IOS_ENABLE,
+# SERIAL_DEV, BAUD, OUT, and optional DEBUG from the environment.
+
+set port   $env(SERIAL_DEV)
+set user   $env(IOS_USER)
+set pass   $env(IOS_PASS)
+set enable $env(IOS_ENABLE)
+set out    $env(OUT)
+
+set debug 0
+if {[info exists env(DEBUG)] && $env(DEBUG) ne "" && $env(DEBUG) ne "0"} {
+    set debug 1
+    exp_internal 1
+}
+
+log_user 1
+
+set fd [open $port "RDWR"]
+fconfigure $fd -mode "$env(BAUD),n,8,1" -translation binary -buffering none -blocking 0
+spawn -open $fd
+
+log_file -noappend $out
+
+set max_user_sends 3
+set max_pass_sends 2
+set user_sends 0
+set pass_sends 0
+
+# Wake the console (one CR — two would submit an empty username).
+send -- "\r"
+
+set timeout 60
+expect {
+    -re "Press RETURN" {
+        send -- "\r"
+        exp_continue
+    }
+    -re "(?i)authentication failed|% Access denied|% Login invalid|% Authentication failed" {
+        puts stderr "\nerror: login rejected by router"
+        exit 2
+    }
+    -re "(?i)username:\[ \t\]*$" {
+        incr user_sends
+        if {$user_sends > $max_user_sends} {
+            puts stderr "\nerror: too many username re-prompts"
+            exit 2
+        }
+        if {$debug} { puts stderr ">> send: '$user'\\r" }
+        send -- "$user\r"
+        exp_continue
+    }
+    -re "(?i)password:\[ \t\]*$" {
+        incr pass_sends
+        if {$pass_sends > $max_pass_sends} {
+            puts stderr "\nerror: too many password re-prompts"
+            exit 2
+        }
+        if {$debug} { puts stderr ">> send: <password>\\r" }
+        send -- "$pass\r"
+        exp_continue
+    }
+    -re {[\r\n][^\r\n#>]*>[ \t]*$} {
+        if {$debug} { puts stderr ">> send: 'enable'\\r" }
+        send -- "enable\r"
+        exp_continue
+    }
+    -re {[\r\n][^\r\n#>]*#[ \t]*$} { }
+    timeout {
+        puts stderr "\nerror: never reached enable prompt (transcript in $out)"
+        exit 1
+    }
+    eof {
+        puts stderr "\nerror: serial connection closed unexpectedly"
+        exit 1
+    }
+}
+
+# Optional secondary enable secret.
+set timeout 10
+expect {
+    -re "(?i)password:\[ \t\]*$" {
+        send -- "$enable\r"
+        exp_continue
+    }
+    -re {[\r\n][^\r\n#>]*#[ \t]*$} { }
+    timeout { }
+}
+
+set timeout 120
+
+send -- "terminal length 0\r"
+expect -re {#[ \t]*$}
+
+send -- "show version\r"
+expect -re {#[ \t]*$}
+
+send -- "show ip interface brief\r"
+expect -re {#[ \t]*$}
+
+send -- "show running-config\r"
+expect {
+    -re {[\r\n]end[\r\n][^\r\n]*#[ \t]*$} { }
+    -re {#[ \t]*$} { }
+    timeout {
+        puts stderr "\nwarning: show running-config may have been truncated"
+    }
+}
+
+send -- "exit\r"
+expect {
+    eof     { }
+    timeout { }
+}
+
+puts "\n\n--- wrote transcript to $out ---"

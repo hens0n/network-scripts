@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "test": "uv run pytest",
+    "typecheck": "uv run mypy src tests"
+  }
+}
