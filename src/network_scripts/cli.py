@@ -1,3 +1,5 @@
+from typing import Optional
+
 import typer
 
 from network_scripts import serial_devices
@@ -67,6 +69,26 @@ def watch_serial_device(
 @cisco_app.callback()
 def cisco() -> None:
     """Capture and explain Cisco Device dumps."""
+
+
+@cisco_app.command("dump")
+def dump_cisco_device(
+    serial: Optional[str] = typer.Option(
+        None,
+        "--serial",
+        help="Serial Device path to use instead of the recorded Latest Serial Device.",
+    ),
+) -> None:
+    """Capture a Config Dump from a Cisco Device."""
+    try:
+        serial_path = serial_devices.resolve_serial_device(explicit_path=serial)
+    except serial_devices.SerialDeviceResolutionError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"Resolved Serial Device: {serial_path}")
+    typer.echo("Cisco Device dump capture is not implemented yet.", err=True)
+    raise typer.Exit(1)
 
 
 app.add_typer(serial_app, name="serial")

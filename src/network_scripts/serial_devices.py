@@ -22,6 +22,30 @@ class SerialDeviceWatchTimeout(RuntimeError):
     pass
 
 
+class SerialDeviceResolutionError(RuntimeError):
+    pass
+
+
+def resolve_serial_device(
+    *,
+    explicit_path: Optional[str] = None,
+    state_dir: Path = STATE_DIR,
+    path_exists: Callable[[str], bool] = lambda path: Path(path).exists(),
+) -> str:
+    if explicit_path:
+        return explicit_path
+    try:
+        latest = read_latest_serial_device(state_dir=state_dir)
+    except FileNotFoundError as exc:
+        raise SerialDeviceResolutionError(_missing_latest_message()) from exc
+    if path_exists(latest.path):
+        return latest.path
+    raise SerialDeviceResolutionError(
+        f"Latest Serial Device {latest.path} no longer exists. "
+        "Run `uv run network-scripts serial watch` or pass `--serial`."
+    )
+
+
 def discover_serial_devices(
     dev_dir: Path = Path("/dev"),
     *,
@@ -94,6 +118,13 @@ def read_latest_serial_device(
     latest_path = state_dir / LATEST_SERIAL_DEVICE_FILE
     data = json.loads(latest_path.read_text())
     return LatestSerialDevice(path=str(data["path"]), observed_at=str(data["observed_at"]))
+
+
+def _missing_latest_message() -> str:
+    return (
+        "No Latest Serial Device has been recorded. Run `uv run network-scripts serial watch` "
+        "or pass `--serial`."
+    )
 
 
 def _is_macos_builtin_serial_device(name: str) -> bool:
