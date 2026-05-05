@@ -5,6 +5,7 @@ description = "Utilities for Cisco Device console workflows."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "pyserial>=3.5",
     "typer>=0.12.0",
 ]
 

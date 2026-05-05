@@ -1,9 +1,10 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
-from network_scripts import serial_devices
+from network_scripts import cisco_dump, serial_devices
 from network_scripts.cli import app
 
 
@@ -163,24 +164,59 @@ def test_resolve_serial_device_does_not_auto_pick_another_device(tmp_path: Path)
     assert str(other_path) not in str(exc_info.value)
 
 
-def test_cisco_dump_accepts_explicit_serial_device() -> None:
-    result = runner.invoke(app, ["cisco", "dump", "--serial", "/dev/cu.explicit"])
+def test_cisco_dump_accepts_explicit_serial_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
 
-    assert result.exit_code == 1
-    assert "Resolved Serial Device: /dev/cu.explicit" in result.output
-    assert "Cisco Device dump capture is not implemented yet" in result.output
+    def capture(**kwargs: Any) -> Path:
+        calls.append(kwargs)
+        return kwargs["output_path"]
+
+    monkeypatch.setattr(cisco_dump, "capture_config_dump", capture)
+
+    result = runner.invoke(
+        app,
+        [
+            "cisco",
+            "dump",
+            "--serial",
+            "/dev/cu.explicit",
+            "--user",
+            "admin",
+            "--password",
+            "pass",
+            "--enable",
+            "enable",
+            "--out",
+            "dump.txt",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls[0]["serial_path"] == "/dev/cu.explicit"
+    assert calls[0]["credentials"] == cisco_dump.Credentials("admin", "pass", "enable")
+    assert calls[0]["output_path"] == Path("dump.txt")
 
 
-def test_cisco_dump_uses_latest_serial_device() -> None:
+def test_cisco_dump_uses_latest_serial_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    def capture(**kwargs: Any) -> Path:
+        calls.append(kwargs)
+        return kwargs["output_path"]
+
+    monkeypatch.setenv("IOS_USER", "admin")
+    monkeypatch.setenv("IOS_PASS", "pass")
+    monkeypatch.setenv("IOS_ENABLE", "enable")
+    monkeypatch.setattr(cisco_dump, "capture_config_dump", capture)
+
     with runner.isolated_filesystem():
         Path("ttyUSB0").write_text("")
         serial_devices.write_latest_serial_device("ttyUSB0")
 
         result = runner.invoke(app, ["cisco", "dump"])
 
-        assert result.exit_code == 1
-        assert "Resolved Serial Device: ttyUSB0" in result.output
-        assert "Cisco Device dump capture is not implemented yet" in result.output
+        assert result.exit_code == 0
+        assert calls[0]["serial_path"] == "ttyUSB0"
 
 
 def test_cisco_dump_fails_clearly_when_latest_serial_device_is_missing() -> None:

@@ -1,8 +1,10 @@
+import os
+from pathlib import Path
 from typing import Optional
 
 import typer
 
-from network_scripts import serial_devices
+from network_scripts import cisco_dump, serial_devices
 
 app = typer.Typer(
     help="Utilities for Cisco Device console workflows.",
@@ -78,17 +80,77 @@ def dump_cisco_device(
         "--serial",
         help="Serial Device path to use instead of the recorded Latest Serial Device.",
     ),
+    baud: int = typer.Option(
+        9600,
+        "--baud",
+        min=1,
+        help="Serial baud rate.",
+    ),
+    out: Optional[Path] = typer.Option(
+        None,
+        "--out",
+        help="Config Dump output path. Defaults to config-dump-YYYYMMDD-HHMMSS.txt.",
+    ),
+    username: Optional[str] = typer.Option(
+        None,
+        "--user",
+        "--username",
+        help="Cisco Device login username. Defaults to IOS_USER, then an interactive prompt.",
+    ),
+    password: Optional[str] = typer.Option(
+        None,
+        "--password",
+        help="Cisco Device login password. Defaults to IOS_PASS, then an interactive prompt.",
+    ),
+    enable_secret: Optional[str] = typer.Option(
+        None,
+        "--enable",
+        "--enable-secret",
+        help="Cisco Device enable secret. Defaults to IOS_ENABLE, then an interactive prompt.",
+    ),
+    login_timeout: float = typer.Option(
+        60.0,
+        "--login-timeout",
+        min=0.01,
+        help="Seconds to wait while logging in.",
+    ),
+    command_timeout: float = typer.Option(
+        120.0,
+        "--command-timeout",
+        min=0.01,
+        help="Seconds to wait for each Cisco Device command to finish.",
+    ),
+    debug: bool = typer.Option(
+        False,
+        "--debug",
+        help="Write debug tracing to stderr. DEBUG=1 also enables tracing.",
+    ),
 ) -> None:
     """Capture a Config Dump from a Cisco Device."""
     try:
         serial_path = serial_devices.resolve_serial_device(explicit_path=serial)
+        credentials = cisco_dump.resolve_credentials(
+            username=username,
+            password=password,
+            enable_secret=enable_secret,
+            prompt=lambda label, hide: typer.prompt(label, hide_input=hide),
+        )
+        output_path = out or cisco_dump.default_output_path()
+        cisco_dump.capture_config_dump(
+            serial_path=serial_path,
+            baud=baud,
+            credentials=credentials,
+            output_path=output_path,
+            login_timeout=login_timeout,
+            command_timeout=command_timeout,
+            debug=debug or os.environ.get("DEBUG") == "1",
+        )
     except serial_devices.SerialDeviceResolutionError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
-
-    typer.echo(f"Resolved Serial Device: {serial_path}")
-    typer.echo("Cisco Device dump capture is not implemented yet.", err=True)
-    raise typer.Exit(1)
+    except cisco_dump.CiscoDumpError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
 
 
 app.add_typer(serial_app, name="serial")
