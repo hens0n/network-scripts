@@ -95,6 +95,7 @@ def capture_config_dump(
     command_timeout: float = 120.0,
     enable: bool = True,
     debug: bool = False,
+    captured_at: Optional[datetime] = None,
     serial_factory: SerialFactory = open_pyserial,
     stdout: TextIO = sys.stdout,
     stderr: TextIO = sys.stderr,
@@ -104,7 +105,6 @@ def capture_config_dump(
     stream = serial_factory(serial_path, baud)
     session = _CiscoSession(
         stream=stream,
-        output_path=output_path,
         credentials=credentials,
         debug=debug,
         stdout=stdout,
@@ -127,6 +127,16 @@ def capture_config_dump(
     finally:
         session.close()
 
+    _write_dump_file(
+        output_path=output_path,
+        dump_type="config-dump" if enable else "diagnostic-dump",
+        captured_at=captured_at or datetime.now(timezone.utc),
+        serial_path=serial_path,
+        baud=baud,
+        hostname=_detect_hostname(session.transcript_text),
+        transcript=session.transcript_text,
+    )
+
     if enable:
         print(f"\n--- wrote Config Dump to {output_path} ---", file=stdout)
     else:
@@ -142,7 +152,6 @@ class _CiscoSession:
         self,
         *,
         stream: SerialStream,
-        output_path: Path,
         credentials: Credentials,
         debug: bool,
         stdout: TextIO,
@@ -151,7 +160,6 @@ class _CiscoSession:
         sleep: Sleep,
     ) -> None:
         self.stream = stream
-        self.output_path = output_path
         self.credentials = credentials
         self.debug = debug
         self.stdout = stdout
@@ -159,13 +167,14 @@ class _CiscoSession:
         self.clock = clock
         self.sleep = sleep
         self.buffer = ""
-        self.transcript = output_path.open("w", encoding="utf-8", errors="replace")
+        self.transcript_chunks: list[str] = []
+
+    @property
+    def transcript_text(self) -> str:
+        return "".join(self.transcript_chunks)
 
     def close(self) -> None:
-        try:
-            self.transcript.close()
-        finally:
-            self.stream.close()
+        self.stream.close()
 
     def login(self, *, timeout: float, enable: bool) -> None:
         username_sends = 0
@@ -255,8 +264,7 @@ class _CiscoSession:
                 text = chunk.decode("utf-8", "replace")
                 self.stdout.write(text)
                 self.stdout.flush()
-                self.transcript.write(text)
-                self.transcript.flush()
+                self.transcript_chunks.append(text)
                 self.buffer += text
                 continue
 
@@ -266,6 +274,36 @@ class _CiscoSession:
                     f"{self.buffer[-200:]!r}"
                 )
             self.sleep(0.01)
+
+
+def _write_dump_file(
+    *,
+    output_path: Path,
+    dump_type: str,
+    captured_at: datetime,
+    serial_path: str,
+    baud: int,
+    hostname: Optional[str],
+    transcript: str,
+) -> None:
+    normalized_timestamp = captured_at.astimezone(timezone.utc).replace(microsecond=0)
+    captured_at_text = normalized_timestamp.isoformat().replace("+00:00", "Z")
+    metadata_lines = [
+        "--- network-scripts dump metadata ---",
+        f"type: {dump_type}",
+        f"captured_at: {captured_at_text}",
+        f"serial_device: {serial_path}",
+        f"baud: {baud}",
+    ]
+    if hostname:
+        metadata_lines.append(f"hostname: {hostname}")
+    metadata_lines.extend(["--- transcript ---", ""])
+    output_path.write_text("\n".join(metadata_lines) + transcript, encoding="utf-8", errors="replace")
+
+
+def _detect_hostname(transcript: str) -> Optional[str]:
+    matches = re.findall(r"(?:^|[\r\n])([A-Za-z0-9_.:-]+)[#>][ \t]*(?=[\r\n]|$)", transcript)
+    return matches[-1] if matches else None
 
 
 def _strip_control_characters(value: str) -> str:

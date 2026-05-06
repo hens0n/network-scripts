@@ -94,6 +94,52 @@ def test_credentials_prompt_for_missing_values() -> None:
     assert prompts == [("Username", False), ("Password", True), ("Enable secret (blank if none)", True)]
 
 
+def test_capture_config_dump_writes_metadata_header_before_raw_transcript(tmp_path: Path) -> None:
+    fake = FakeSerial(
+        [
+            b"Username:",
+            b"Password:",
+            b"\r\nSwitch>",
+            b"Password:",
+            b"\r\nSwitch#",
+            b"\r\nSwitch#",
+            b"\r\nCisco IOS XE Software\r\nSwitch#",
+            b"\r\nInterface IP-Address OK? Method Status Protocol\r\nSwitch#",
+            b"\r\nBuilding configuration...\r\nusername admin secret login-pass\r\nenable secret enable-pass\r\nend\r\nSwitch#",
+        ]
+    )
+
+    output_path = cisco_dump.capture_config_dump(
+        serial_path="/dev/ttyUSB0",
+        baud=115200,
+        credentials=cisco_dump.Credentials(
+            username="admin",
+            password="login-pass",
+            enable_secret="enable-pass",
+        ),
+        output_path=tmp_path / "dump.txt",
+        login_timeout=1,
+        command_timeout=1,
+        captured_at=datetime(2026, 5, 5, 12, 34, 56, tzinfo=timezone.utc),
+        serial_factory=lambda path, baud: fake,
+        stdout=StringIO(),
+        stderr=StringIO(),
+    )
+
+    text = output_path.read_text()
+    header, transcript = text.split("--- transcript ---\n", maxsplit=1)
+    assert "type: config-dump" in header
+    assert "captured_at: 2026-05-05T12:34:56Z" in header
+    assert "serial_device: /dev/ttyUSB0" in header
+    assert "baud: 115200" in header
+    assert "hostname: Switch" in header
+    assert "admin" not in header
+    assert "login-pass" not in header
+    assert "enable-pass" not in header
+    assert transcript.startswith("Username:")
+    assert "Building configuration" in transcript
+
+
 def test_capture_config_dump_logs_in_enters_enable_and_runs_config_commands(tmp_path: Path) -> None:
     fake = FakeSerial(
         [
@@ -191,7 +237,14 @@ def test_capture_diagnostic_dump_skips_enable_and_running_config(tmp_path: Path)
         b"show ip interface brief\r",
         b"exit\r",
     ]
-    assert "Building configuration" not in output_path.read_text()
+    text = output_path.read_text()
+    header, transcript = text.split("--- transcript ---\n", maxsplit=1)
+    assert "type: diagnostic-dump" in header
+    assert "serial_device: /dev/ttyUSB0" in header
+    assert "baud: 9600" in header
+    assert "hostname: Switch" in header
+    assert transcript.startswith("Username:")
+    assert "Building configuration" not in transcript
     assert "wrote Diagnostic Dump" in stdout.getvalue()
     assert "running configuration was not captured" in stdout.getvalue()
     assert fake.closed is True
