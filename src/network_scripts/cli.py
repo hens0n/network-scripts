@@ -108,6 +108,11 @@ def dump_cisco_device(
         "--enable-secret",
         help="Cisco Device enable secret. Defaults to IOS_ENABLE, then an interactive prompt.",
     ),
+    no_enable: bool = typer.Option(
+        False,
+        "--no-enable",
+        help="Capture a Diagnostic Dump without entering privileged mode or running show running-config.",
+    ),
     login_timeout: float = typer.Option(
         60.0,
         "--login-timeout",
@@ -126,16 +131,18 @@ def dump_cisco_device(
         help="Write debug tracing to stderr. DEBUG=1 also enables tracing.",
     ),
 ) -> None:
-    """Capture a Config Dump from a Cisco Device."""
+    """Capture a Config Dump or Diagnostic Dump from a Cisco Device."""
     try:
         serial_path = serial_devices.resolve_serial_device(explicit_path=serial)
+        enable = not no_enable
         credentials = cisco_dump.resolve_credentials(
             username=username,
             password=password,
             enable_secret=enable_secret,
             prompt=lambda label, hide: typer.prompt(label, hide_input=hide),
+            require_enable_secret=enable,
         )
-        output_path = out or cisco_dump.default_output_path()
+        output_path = out or cisco_dump.default_output_path(enable=enable)
         cisco_dump.capture_config_dump(
             serial_path=serial_path,
             baud=baud,
@@ -143,6 +150,7 @@ def dump_cisco_device(
             output_path=output_path,
             login_timeout=login_timeout,
             command_timeout=command_timeout,
+            enable=enable,
             debug=debug or os.environ.get("DEBUG") == "1",
         )
     except serial_devices.SerialDeviceResolutionError as exc:

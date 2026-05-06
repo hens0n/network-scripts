@@ -197,6 +197,38 @@ def test_cisco_dump_accepts_explicit_serial_device(monkeypatch: pytest.MonkeyPat
     assert calls[0]["output_path"] == Path("dump.txt")
 
 
+def test_cisco_dump_no_enable_captures_diagnostic_dump_without_enable_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def capture(**kwargs: Any) -> Path:
+        calls.append(kwargs)
+        return kwargs["output_path"]
+
+    monkeypatch.setattr(cisco_dump, "capture_config_dump", capture)
+
+    result = runner.invoke(
+        app,
+        [
+            "cisco",
+            "dump",
+            "--serial",
+            "/dev/cu.explicit",
+            "--user",
+            "admin",
+            "--password",
+            "pass",
+            "--no-enable",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls[0]["enable"] is False
+    assert calls[0]["credentials"] == cisco_dump.Credentials("admin", "pass", "")
+    assert calls[0]["output_path"].name.startswith("diagnostic-dump-")
+
+
 def test_cisco_dump_uses_latest_serial_device(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 

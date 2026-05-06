@@ -36,9 +36,10 @@ Clock = Callable[[], float]
 Sleep = Callable[[float], None]
 
 
-def default_output_path(now: Optional[datetime] = None) -> Path:
+def default_output_path(now: Optional[datetime] = None, *, enable: bool = True) -> Path:
     timestamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d-%H%M%S")
-    return Path(f"config-dump-{timestamp}.txt")
+    prefix = "config-dump" if enable else "diagnostic-dump"
+    return Path(f"{prefix}-{timestamp}.txt")
 
 
 def resolve_credentials(
@@ -48,6 +49,7 @@ def resolve_credentials(
     enable_secret: Optional[str] = None,
     env: Mapping[str, str] = os.environ,
     prompt: Prompt,
+    require_enable_secret: bool = True,
 ) -> Credentials:
     resolved_username = username if username is not None else env.get("IOS_USER")
     while not resolved_username:
@@ -58,8 +60,10 @@ def resolve_credentials(
         resolved_password = prompt("Password", True)
 
     resolved_enable = enable_secret if enable_secret is not None else env.get("IOS_ENABLE")
-    if resolved_enable is None:
+    if resolved_enable is None and require_enable_secret:
         resolved_enable = prompt("Enable secret (blank if none)", True)
+    if resolved_enable is None:
+        resolved_enable = ""
 
     return Credentials(
         username=resolved_username,
@@ -89,6 +93,7 @@ def capture_config_dump(
     output_path: Path,
     login_timeout: float = 60.0,
     command_timeout: float = 120.0,
+    enable: bool = True,
     debug: bool = False,
     serial_factory: SerialFactory = open_pyserial,
     stdout: TextIO = sys.stdout,
@@ -108,19 +113,27 @@ def capture_config_dump(
         sleep=sleep,
     )
     try:
-        session.login(timeout=login_timeout)
-        for command in (
+        session.login(timeout=login_timeout, enable=enable)
+        commands = [
             "terminal length 0",
             "show version",
             "show ip interface brief",
-            "show running-config",
-        ):
+        ]
+        if enable:
+            commands.append("show running-config")
+        for command in commands:
             session.run_command(command, timeout=command_timeout)
         session.send("exit", secret=False)
     finally:
         session.close()
 
-    print(f"\n--- wrote Config Dump to {output_path} ---", file=stdout)
+    if enable:
+        print(f"\n--- wrote Config Dump to {output_path} ---", file=stdout)
+    else:
+        print(
+            f"\n--- wrote Diagnostic Dump to {output_path}; running configuration was not captured ---",
+            file=stdout,
+        )
     return output_path
 
 
@@ -154,7 +167,7 @@ class _CiscoSession:
         finally:
             self.stream.close()
 
-    def login(self, *, timeout: float) -> None:
+    def login(self, *, timeout: float, enable: bool) -> None:
         username_sends = 0
         password_sends = 0
         enable_password_sends = 0
@@ -196,6 +209,8 @@ class _CiscoSession:
                         raise CiscoDumpError("too many password prompts from Cisco Device")
                     self.send(self.credentials.password, secret=True)
             elif idx == 4:
+                if not enable:
+                    return
                 enabling = True
                 self.send("enable", secret=False)
             elif idx == 5:
@@ -204,7 +219,13 @@ class _CiscoSession:
     def run_command(self, command: str, *, timeout: float) -> None:
         self.send(command, secret=False)
         deadline = self.clock() + timeout
-        self.expect([r"[\r\n][^\r\n#>]*#[ \t]*$", r"#[ \t]*$"], deadline=deadline)
+        self.expect(
+            [
+                r"[\r\n][^\r\n#>]*[#>][ \t]*$",
+                r"[#>][ \t]*$",
+            ],
+            deadline=deadline,
+        )
 
     def send(self, command: str, *, secret: bool) -> None:
         wire_text = f"{command}\r"
