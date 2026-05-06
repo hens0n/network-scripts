@@ -52,6 +52,63 @@ Switch#
         assert "wrote config-dump.html" in result.output
 
 
+def test_cisco_explain_warns_when_rendering_diagnostic_dump() -> None:
+    transcript = """--- network-scripts dump metadata ---
+type: diagnostic-dump
+captured_at: 2026-05-05T12:34:56Z
+serial_device: /dev/ttyUSB0
+baud: 9600
+hostname: Switch
+--- transcript ---
+Switch>show version
+Cisco IOS XE Software, Version 17.13.01a
+ROM: IOS-XE ROMMON
+Switch uptime is 1 day, 2 hours
+cisco C9300-24P (X86) processor
+Processor board ID ABC123
+System image file is \"flash:packages.conf\"
+Switch>show ip interface brief
+Interface              IP-Address      OK? Method Status                Protocol
+GigabitEthernet1/0/1   10.0.0.1        YES manual up                    up
+Switch>
+"""
+
+    with runner.isolated_filesystem():
+        Path("diagnostic-dump.txt").write_text(transcript, encoding="utf-8")
+
+        result = runner.invoke(app, ["cisco", "explain", "diagnostic-dump.txt"])
+
+        assert result.exit_code == 0, result.output
+        html = Path("diagnostic-dump.html").read_text(encoding="utf-8")
+        assert "Diagnostic Dump" in result.output
+        assert "show running-config was not captured" in result.output
+        assert "Diagnostic Dump" in html
+        assert "No running configuration was captured" in html
+        assert "Cisco IOS XE 17.13.01a" in html
+        assert "GigabitEthernet1/0/1" in html
+
+
+def test_cisco_explain_warns_when_running_config_is_missing_from_legacy_transcript() -> None:
+    transcript = """Legacy#show version
+Cisco IOS Software, Version 15.9(3)M
+Legacy#show ip interface brief
+Interface              IP-Address      OK? Method Status                Protocol
+GigabitEthernet0/0/0   unassigned      YES unset  administratively down down
+Legacy#
+"""
+
+    with runner.isolated_filesystem():
+        Path("legacy-diagnostic.txt").write_text(transcript, encoding="utf-8")
+
+        result = runner.invoke(app, ["cisco", "explain", "legacy-diagnostic.txt"])
+
+        assert result.exit_code == 0, result.output
+        html = Path("legacy-diagnostic.html").read_text(encoding="utf-8")
+        assert "show running-config was not captured" in result.output
+        assert "No running configuration was captured" in html
+        assert "GigabitEthernet0/0/0" in html
+
+
 def test_cisco_explain_tolerates_legacy_raw_transcript_and_honors_out_option() -> None:
     transcript = """Legacy#show version
 Cisco IOS Software, Version 15.9(3)M

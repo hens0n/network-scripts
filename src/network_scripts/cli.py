@@ -93,6 +93,8 @@ def explain_cisco_dump(
         raise typer.Exit(1)
 
     result = cisco_explain.explain_dump(input_path, out)
+    if result.warning:
+        typer.echo(f"warning: Diagnostic Dump: {result.warning}", err=True)
     typer.echo(f"wrote {result.output_path} ({result.output_path.stat().st_size:,} bytes)")
     typer.echo(f"  hostname:   {result.hostname}")
     typer.echo(f"  version:    {result.version.software} {result.version.version}")

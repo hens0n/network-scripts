@@ -24,7 +24,7 @@ from pathlib import Path
 # Transcript splitting
 # ---------------------------------------------------------------------------
 
-PROMPT_RE = re.compile(r"^(?P<host>[\w\-.]+)#(?P<cmd>[^\n\r]*)$", re.MULTILINE)
+PROMPT_RE = re.compile(r"^(?P<host>[\w\-.]+)[#>](?P<cmd>[^\n\r]*)$", re.MULTILINE)
 TRANSCRIPT_DELIMITER = "--- transcript ---"
 
 
@@ -53,7 +53,7 @@ def parse_dump_input(text: str) -> DumpInput:
 def extract_command_output(transcript: str, command: str) -> str:
     """Return the output between `<host>#<command>` and the next prompt."""
     pattern = re.compile(
-        rf"^(?P<host>[\w\-.]+)#\s*{re.escape(command)}\s*$",
+        rf"^(?P<host>[\w\-.]+)[#>]\s*{re.escape(command)}\s*$",
         re.MULTILINE,
     )
     m = pattern.search(transcript)
@@ -61,7 +61,7 @@ def extract_command_output(transcript: str, command: str) -> str:
         return ""
     host = m.group("host")
     start = m.end()
-    end_m = re.search(rf"^{re.escape(host)}#", transcript[start:], re.MULTILINE)
+    end_m = re.search(rf"^{re.escape(host)}[#>]", transcript[start:], re.MULTILINE)
     end = start + end_m.start() if end_m else len(transcript)
     return transcript[start:end].strip("\r\n ")
 
@@ -668,6 +668,11 @@ table.brief th, table.brief td {
   border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left;
 }
 table.brief th { background: #f6f8fa; }
+.warning {
+  margin: 18px 24px 0; padding: 12px 16px; border: 1px solid #d4a72c;
+  border-left: 4px solid var(--warn); border-radius: 6px; background: #fff8c5;
+}
+.warning strong { display: block; margin-bottom: 4px; }
 code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
 """
 
@@ -750,7 +755,7 @@ def render_vlan_table(vlans: dict[int, VlanInfo]) -> str:
 
 
 def render_html(title: str, version: VersionInfo, brief: list[BriefInterface],
-                blocks: list[ConfigBlock]) -> str:
+                blocks: list[ConfigBlock], diagnostic_warning: str = "") -> str:
     by_cat: dict[str, list[ConfigBlock]] = {k: [] for k in CATEGORY_KEYS}
     for b in blocks:
         by_cat[categorize(b)].append(b)
@@ -776,6 +781,12 @@ def render_html(title: str, version: VersionInfo, brief: list[BriefInterface],
         for k, t, _ in CATEGORIES
         if by_cat.get(k) or k == "interfaces" or (k == "vlans" and vlans)
     )
+    warning_html = ""
+    if diagnostic_warning:
+        warning_html = (
+            '<div class="warning"><strong>Diagnostic Dump</strong>'
+            f'{html.escape(diagnostic_warning)}</div>'
+        )
 
     sections_html: list[str] = []
     for key, name, intro in CATEGORIES:
@@ -845,6 +856,7 @@ def render_html(title: str, version: VersionInfo, brief: list[BriefInterface],
   <div class="meta">Cisco configuration explainer</div>
 </header>
 <div class="summary">{summary_html}</div>
+{warning_html}
 <nav class="toc">{nav_html}</nav>
 <main>{''.join(sections_html)}</main>
 </body>
@@ -865,6 +877,8 @@ class ExplainResult:
     running_interface_count: int
     block_count: int
     metadata: dict[str, str]
+    diagnostic: bool
+    warning: str
 
 
 def explain_dump(input_path: Path, output_path: Path | None = None) -> ExplainResult:
@@ -879,9 +893,13 @@ def explain_dump(input_path: Path, output_path: Path | None = None) -> ExplainRe
     )
     running = extract_command_output(transcript, "show running-config")
     blocks = parse_running_config(running)
+    diagnostic = dump_input.metadata.get("type") == "diagnostic-dump" or not running
+    warning = ""
+    if diagnostic:
+        warning = "No running configuration was captured; show running-config was not captured."
 
     out_path = output_path or src.with_suffix(".html")
-    out_path.write_text(render_html(hostname, version, brief, blocks), encoding="utf-8")
+    out_path.write_text(render_html(hostname, version, brief, blocks, warning), encoding="utf-8")
     return ExplainResult(
         output_path=out_path,
         hostname=hostname,
@@ -890,6 +908,8 @@ def explain_dump(input_path: Path, output_path: Path | None = None) -> ExplainRe
         running_interface_count=sum(1 for block in blocks if block.header.startswith("interface ")),
         block_count=len(blocks),
         metadata=dump_input.metadata,
+        diagnostic=diagnostic,
+        warning=warning,
     )
 
 
@@ -907,6 +927,8 @@ def main() -> int:
         return 1
 
     result = explain_dump(src, Path(args.out) if args.out else None)
+    if result.warning:
+        print(f"warning: Diagnostic Dump: {result.warning}", file=sys.stderr)
     print(f"wrote {result.output_path} ({result.output_path.stat().st_size:,} bytes)")
     print(f"  hostname:   {result.hostname}")
     print(f"  version:    {result.version.software} {result.version.version}")
