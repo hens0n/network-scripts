@@ -4,7 +4,7 @@ from typing import Optional
 
 import typer
 
-from network_scripts import cisco_dump, serial_devices
+from network_scripts import cisco_dump, cisco_explain, serial_devices
 
 app = typer.Typer(
     help="Utilities for Cisco Device console workflows.",
@@ -71,6 +71,37 @@ def watch_serial_device(
 @cisco_app.callback()
 def cisco() -> None:
     """Capture and explain Cisco Device dumps."""
+
+
+@cisco_app.command("explain")
+def explain_cisco_dump(
+    input_path: Path = typer.Argument(
+        ...,
+        metavar="INPUT",
+        help="Config Dump or legacy raw transcript to render as HTML.",
+    ),
+    out: Optional[Path] = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help="HTML output path. Defaults to <input-stem>.html.",
+    ),
+) -> None:
+    """Render a Config Dump as an HTML dashboard."""
+    if not input_path.exists():
+        typer.echo(f"error: {input_path} not found", err=True)
+        raise typer.Exit(1)
+
+    result = cisco_explain.explain_dump(input_path, out)
+    typer.echo(f"wrote {result.output_path} ({result.output_path.stat().st_size:,} bytes)")
+    typer.echo(f"  hostname:   {result.hostname}")
+    typer.echo(f"  version:    {result.version.software} {result.version.version}")
+    typer.echo(f"  model:      {result.version.model}")
+    typer.echo(
+        f"  interfaces: {result.interface_count} from brief table; "
+        f"{result.running_interface_count} in running-config"
+    )
+    typer.echo(f"  blocks:     {result.block_count}")
 
 
 @cisco_app.command("dump")
