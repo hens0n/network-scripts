@@ -16,3 +16,9 @@ def test_readme_documents_diagnostic_dump_and_feature_parity_gate() -> None:
     assert "show running-config" in README
     assert "Feature parity gate" in README
     assert "scripts/" in README
+
+
+def test_legacy_scripts_directory_has_been_removed_after_feature_parity() -> None:
+    assert not Path("scripts").exists()
+    assert "The legacy `scripts/` directory has been removed" in README
+    assert "stays until" not in README

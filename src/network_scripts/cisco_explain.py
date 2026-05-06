@@ -1,13 +1,9 @@
-#!/usr/bin/env python3
-"""Render a Cisco IOS/IOS-XE config transcript as a friendly HTML dashboard.
+"""Render Cisco IOS/IOS-XE dump transcripts as friendly HTML dashboards.
 
-Reads the transcript produced by dump-cisco-config.sh (which contains
-`show version`, `show ip interface brief`, and `show running-config`) and
-generates a single self-contained HTML page that explains the device's
-configuration in plain English for someone unfamiliar with Cisco.
-
-Usage:
-    scripts/explain-cisco-config.py [input.txt] [-o dashboard.html]
+Reads Config Dumps and Diagnostic Dumps produced by
+`uv run network-scripts cisco dump`, while still tolerating legacy raw
+transcripts. Generates a single self-contained HTML page that explains the
+available device data in plain English for someone unfamiliar with Cisco.
 """
 
 from __future__ import annotations

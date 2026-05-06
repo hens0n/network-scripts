@@ -50,15 +50,15 @@ uv run network-scripts cisco explain INPUT --out dashboard.html
 
 ## Feature parity gate
 
-The legacy `scripts/` directory stays until the uv-managed Python CLI reaches feature parity. Before deleting `scripts/`, verify:
+The legacy `scripts/` directory has been removed after the uv-managed Python CLI reached feature parity:
 
-- [ ] `uv run network-scripts serial watch` replaces `scripts/watch-serial-devices.sh` for detecting and recording the Latest Serial Device.
-- [ ] `uv run network-scripts cisco dump` replaces privileged Config Dump capture from `scripts/dump-cisco-config.sh`, `scripts/dump-cisco-config.py`, and `scripts/dump-cisco-config.exp`.
-- [ ] `uv run network-scripts cisco dump --no-enable` supports Diagnostic Dump capture without requiring an enable secret.
-- [ ] `uv run network-scripts cisco explain INPUT` replaces `scripts/explain-cisco-config.py` for HTML explanation.
-- [ ] Dump files include network-scripts metadata headers without credentials.
-- [ ] Diagnostic Dump explanations visibly warn that `show running-config` was not captured.
-- [ ] `npm run test` and `npm run typecheck` pass after deletion.
+- [x] `uv run network-scripts serial watch` replaces `scripts/watch-serial-devices.sh` for detecting and recording the Latest Serial Device.
+- [x] `uv run network-scripts cisco dump` replaces privileged Config Dump capture from `scripts/dump-cisco-config.sh`, `scripts/dump-cisco-config.py`, and `scripts/dump-cisco-config.exp`.
+- [x] `uv run network-scripts cisco dump --no-enable` supports Diagnostic Dump capture without requiring an enable secret.
+- [x] `uv run network-scripts cisco explain INPUT` replaces `scripts/explain-cisco-config.py` for HTML explanation.
+- [x] Dump files include network-scripts metadata headers without credentials.
+- [x] Diagnostic Dump explanations visibly warn that `show running-config` was not captured.
+- [x] `npm run test` and `npm run typecheck` pass after deletion.
 
 ## Development
 
